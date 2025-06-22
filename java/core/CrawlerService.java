@@ -2,6 +2,7 @@ package core;
 
 import db.MongoWriter;
 import db.MySQLWriter;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
@@ -11,16 +12,19 @@ import java.util.*;
 @Service
 public class CrawlerService {
 
+    @Autowired
+    private AppConfig config;
+
     public List<Map<String, Object>> run() throws Exception {
         Connection mysqlConn = DriverManager.getConnection(
-                "jdbc:mysql://localhost:3306/webcrawler", "root", ""
+                config.getMysqlUrl(), config.getMysqlUsername(), config.getMysqlPassword()
         );
 
         UrlFetcher fetcher = new UrlFetcher(mysqlConn);
         // KafkaDeadLetterProducer kafkaProducer = new KafkaDeadLetterProducer(getKafkaProps());
         Crawler crawler = new Crawler(null);
         Parser parser = new Parser();
-        MongoWriter mongoWriter = new MongoWriter("mongodb://localhost:27017", "crawlerDB", "raw_pages");
+        MongoWriter mongoWriter = new MongoWriter(config.getMongoUri(), config.getMongoDatabase(), config.getMongoCollection());
         MySQLWriter mysqlWriter = new MySQLWriter(mysqlConn);
 
         List<Map<String, Object>> summaryList = new ArrayList<>();
@@ -48,9 +52,9 @@ public class CrawlerService {
 
     private Properties getKafkaProps() {
         Properties props = new Properties();
-        props.put("bootstrap.servers", "localhost:9092");
-        props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
-        props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+        props.put("bootstrap.servers", config.getKafkaBootstrapServers());
+        props.put("key.serializer", config.getKafkaKeySerializer());
+        props.put("value.serializer", config.getKafkaValueSerializer());
         return props;
     }
 }
