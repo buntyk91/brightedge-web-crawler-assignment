@@ -1,0 +1,56 @@
+package core;
+
+import db.MongoWriter;
+import db.MySQLWriter;
+import org.springframework.stereotype.Service;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.util.*;
+
+@Service
+public class CrawlerService {
+
+    public List<Map<String, Object>> run() throws Exception {
+        Connection mysqlConn = DriverManager.getConnection(
+                "jdbc:mysql://localhost:3306/webcrawler", "root", ""
+        );
+
+        UrlFetcher fetcher = new UrlFetcher(mysqlConn);
+        // KafkaDeadLetterProducer kafkaProducer = new KafkaDeadLetterProducer(getKafkaProps());
+        Crawler crawler = new Crawler(null);
+        Parser parser = new Parser();
+        MongoWriter mongoWriter = new MongoWriter("mongodb://localhost:27017", "crawlerDB", "raw_pages");
+        MySQLWriter mysqlWriter = new MySQLWriter(mysqlConn);
+
+        List<Map<String, Object>> summaryList = new ArrayList<>();
+
+        List<String> urls = fetcher.fetchNextBatch(10);
+        for (String url : urls) {
+            Optional<String> html = crawler.fetchWithRetries(url, 3);
+            if (html.isPresent()) {
+                Map<String, Object> parsed = parser.parse(html.get(), url);
+                mongoWriter.write(parsed);
+                mysqlWriter.write(parsed);
+
+                // Extract fixed fields for return
+                Map<String, Object> fixedFields = new LinkedHashMap<>();
+                fixedFields.put("url", parsed.get("url"));
+                fixedFields.put("title", parsed.get("title"));
+                fixedFields.put("description", parsed.get("description"));
+                fixedFields.put("timestamp", parsed.get("timestamp"));
+                fixedFields.put("body", parsed.get("body"));
+                summaryList.add(fixedFields);
+            }
+        }
+        return summaryList;
+    }
+
+    private Properties getKafkaProps() {
+        Properties props = new Properties();
+        props.put("bootstrap.servers", "localhost:9092");
+        props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+        props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+        return props;
+    }
+}
